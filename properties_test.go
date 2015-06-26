@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
+	. "github.com/dvln/check"
 )
 
 func Test(t *testing.T) { TestingT(t) }

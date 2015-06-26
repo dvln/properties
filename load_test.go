@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	. "gopkg.in/check.v1"
+	. "github.com/dvln/check"
 )
 
 type LoadSuite struct {
