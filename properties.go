@@ -47,6 +47,12 @@ type Properties struct {
 	Prefix  string
 	Postfix string
 
+	// DisableExpansion controls the expansion of properties on Get()
+	// and the check for circular references on Set(). When set to
+	// true Properties behaves like a simple key/value store and does
+	// not check for circular references on Get() or on Set().
+	DisableExpansion bool
+
 	// Stores the key/value pairs
 	m map[string]string
 
@@ -73,6 +79,9 @@ func NewProperties() *Properties {
 // Otherwise, ok is false.
 func (p *Properties) Get(key string) (value string, ok bool) {
 	v, ok := p.m[key]
+	if p.DisableExpansion {
+		return v, ok
+	}
 	if !ok {
 		return "", false
 	}
@@ -172,10 +181,14 @@ func (p *Properties) MustGetBool(key string) bool {
 
 func (p *Properties) getBool(key string) (value bool, err error) {
 	if v, ok := p.Get(key); ok {
-		v = strings.ToLower(v)
-		return v == "1" || v == "true" || v == "yes" || v == "on", nil
+		return boolVal(v), nil
 	}
 	return false, invalidKeyError(key)
+}
+
+func boolVal(v string) bool {
+	v = strings.ToLower(v)
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 // ----------------------------------------------------------------------------
@@ -425,21 +438,34 @@ func (p *Properties) Filter(pattern string) (*Properties, error) {
 // for which the key matches the regular expression.
 func (p *Properties) FilterRegexp(re *regexp.Regexp) *Properties {
 	pp := NewProperties()
-	for k, v := range p.m {
+	for _, k := range p.k {
 		if re.MatchString(k) {
-			pp.Set(k, v)
+			pp.Set(k, p.m[k])
 		}
 	}
 	return pp
 }
 
-// FilterPrefix returns a new properties object which contains all properties
-// for which the key starts with the prefix.
+// FilterPrefix returns a new properties object with a subset of all keys
+// with the given prefix.
 func (p *Properties) FilterPrefix(prefix string) *Properties {
 	pp := NewProperties()
-	for k, v := range p.m {
+	for _, k := range p.k {
 		if strings.HasPrefix(k, prefix) {
-			pp.Set(k, v)
+			pp.Set(k, p.m[k])
+		}
+	}
+	return pp
+}
+
+// FilterStripPrefix returns a new properties object with a subset of all keys
+// with the given prefix and the prefix removed from the keys.
+func (p *Properties) FilterStripPrefix(prefix string) *Properties {
+	pp := NewProperties()
+	n := len(prefix)
+	for _, k := range p.k {
+		if len(k) > len(prefix) && strings.HasPrefix(k, prefix) {
+			pp.Set(k[n:], p.m[k])
 		}
 	}
 	return pp
@@ -468,6 +494,13 @@ func (p *Properties) Keys() []string {
 func (p *Properties) Set(key, value string) (prev string, ok bool, err error) {
 	if key == "" {
 		return "", false, nil
+	}
+
+	// if expansion is disabled we allow circular references
+	if p.DisableExpansion {
+		prev, ok = p.Get(key)
+		p.m[key] = value
+		return prev, ok, nil
 	}
 
 	// to check for a circular reference we temporarily need
@@ -576,6 +609,21 @@ func (p *Properties) WriteComment(w io.Writer, prefix string, enc Encoding) (n i
 		n += x
 	}
 	return
+}
+
+// ----------------------------------------------------------------------------
+
+// Delete removes the key and its comments.
+func (p *Properties) Delete(key string) {
+	delete(p.m, key)
+	delete(p.c, key)
+	newKeys := []string{}
+	for _, k := range p.k {
+		if k != key {
+			newKeys = append(newKeys, key)
+		}
+	}
+	p.k = newKeys
 }
 
 // ----------------------------------------------------------------------------
